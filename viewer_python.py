@@ -14,16 +14,28 @@ class Main(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setGeometry(100,100,600,600)
-        self.lista= Lista()
+        self.lista_study= Lista()
+
         self.layout = QVBoxLayout()
-        self.layout.addWidget(self.lista)
-        self.lista.return_value.connect(self.handle_returned_value)
-        self.lista.show()
+        self.layout.addWidget(self.lista_study)
+        self.lista_study.return_value.connect(self.handle_returned_value)
+        self.lista_study.show()
+        self.studInfo=""
 
     def handle_returned_value(self, value):
         print(f"Returned Value: {value}")
-        self.lista.close()
-        self.viewer= DICOMViewer(value[1])
+        self.lista_study.close()
+        self.lista_series=Lista(tipologia="Series", StudyID=value[1]["ID"])
+        self.studInfo = value[1]
+        self.layout.addWidget(self.lista_series)
+        self.lista_series.return_value.connect(self.handle_returned_values)
+        print(value[0])
+        self.lista_series.get_name(value[0])
+        self.lista_series.show()
+
+    def handle_returned_values(self, value):
+        self.lista_study.close()
+        self.viewer= DICOMViewer(self.studInfo, value[1] )
         self.viewer.show()
 
 

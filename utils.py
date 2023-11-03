@@ -2,7 +2,6 @@ from PyQt5.QtWidgets import QGridLayout, QPushButton, QSlider, QLabel, QFrame, Q
 from PyQt5.QtGui import QPixmap, QImage, QPainter, QPen, QColor
 from PyQt5.QtCore import Qt, QTimer, QPoint, pyqtSignal
 from PyQt5.QtGui import QPixmap, QWheelEvent, QImage
-from DCM_reader import DCMFinderNN
 from PyQt5.QtGui import QPolygon
 from pyorthanc import Orthanc
 from functools import partial
@@ -16,34 +15,23 @@ import json
 import vtk
 import time
 import sys
-
-
-class IODeepList():
-    def __init__(self, user:str, pwd:str, ip_pacs:str):
-        super().__init__()
-        self.orthanc = Orthanc(ip_pacs, username=user, password=pwd)
-        self.lista= []
-    
-    def find_dnn(self):
-        for instance in self.orthanc.get_studies():
-            patient_info = self.orthanc.get_studies_id(instance)
-            patient_name = patient_info['PatientMainDicomTags']['00170001']
-            dnn_instance_uid = patient_info['MainDicomTags']['00170004']
-            self.lista.append((patient_name, patient_info, dnn_instance_uid))
-        return self.lista
-
+sys.path.append("C:\\Users\\lucas\\Documents\\DMC_code_paper")
+from DCM_reader import DCMFinderNN
 
 class exServer():
-    def __init__(self, dcm, server_info:dict):
-        self.server_info= server_info
+
+    def __init__(self, dcm):
+        self.server_info= {'host':'127.0.0.1', 'port':8042, 'username':'alice', 'password':'alice'}
         self.dcm= dcm
 
-    def orthanc_solution(self):
+    def orthanc_solution(self, UID):
         list_tag_name = [
-            "Modality", "BodyPartExaminated", "StudyDescription",
+            "Modality", "AnatomicRegionSequenceAttribute", "StudyDescription",
             "SamplesPerPixel", "Rows","Columns", "PhotometricInterpretation", "PixelRepresentation"
             ]
+        # list_tag_name = ["SpecificCharacterSet", "ImageType", "InstanceCreationDate", "InstanceCreationTime", "InstanceCreatorUID", "SOPClassUID", "SOPInstanceUID", "StudyDate", "SeriesDate", "StudyTime", "SeriesTime", "AccessionNumber", "Modality", "Manufacturer", "InstitutionName", "ReferringPhysicianName", "StudyDescription", "SeriesDescription", "ManufacturerModelName", "PatientName", "PatientID", "PatientBirthDate", "PatientSex", "PatientWeight", "ScanningSequence", "SequenceVariant", "ScanOptions", "MRAcquisitionType", "SliceThickness", "RepetitionTime", "EchoTime", "InversionTime", "NumberOfAverages", "ImagingFrequency", "ImagedNucleus", "EchoNumbers", "MagneticFieldStrength", "SpacingBetweenSlices", "NumberOfPhaseEncodingSteps", "EchoTrainLength", "PercentSampling", "PercentPhaseFieldOfView", "DeviceSerialNumber", "SoftwareVersions", "ProtocolName", "LowRRValue", "HighRRValue", "IntervalsAcquired", "IntervalsRejected", "HeartRate", "ReceiveCoilName", "TransmitCoilName", "InPlanePhaseEncodingDirection", "FlipAngle", "PatientPosition", "StudyInstanceUID", "SeriesInstanceUID", "StudyID", "SeriesNumber", "AcquisitionNumber", "InstanceNumber", "ImagePositionPatient", "ImageOrientationPatient", "FrameOfReferenceUID", "PositionReferenceIndicator", "ImageComments", "SamplesPerPixel", "PhotometricInterpretation", "Rows", "Columns", "PixelSpacing", "BitsAllocated", "BitsStored", "HighBit", "PixelRepresentation", "WindowCenter", "WindowWidth", "PixelData", "DataSetTrailingPadding"]
         dictio_tag = {}
+        info_list = []
         dcm_retr= self.dcm
         pixel_data = dcm_retr.get_array()
         for item in list_tag_name:
@@ -88,15 +76,26 @@ class Spinner():
 class Lista(QDialog):
     return_value = pyqtSignal(tuple)
 
-    def __init__(self):
+    def __init__(self,tipologia="Study", StudyID=None):
         super().__init__()
         orthanc = Orthanc('http://127.0.0.1:8042', username='alice', password='alice')
         self.lista= []
-        for instance in orthanc.get_studies():
-            patient_info = orthanc.get_studies_id(instance)
-            patient_name = patient_info['PatientMainDicomTags']['PatientName']
-            StudyInstanceUID = patient_info['MainDicomTags']['StudyInstanceUID']
-            self.lista.append((patient_name, patient_info))
+        self.name=""
+        if tipologia == "Study":
+            for instance in orthanc.get_studies():
+                patient_info = orthanc.get_studies_id(instance)
+                patient_name = patient_info['PatientMainDicomTags']['PatientName']
+                StudyInstanceUID = patient_info['MainDicomTags']['StudyInstanceUID']
+                self.lista.append((patient_name, patient_info))
+        else:
+            for instance in orthanc.get_studies_id_series(StudyID):
+                print(instance)
+                patient_info = orthanc.get_series_id(instance['ID'])
+                if patient_info["MainDicomTags"]["SeriesInstanceUID"] is not None:
+                    number = patient_info["MainDicomTags"]["SeriesInstanceUID"]
+                else:
+                    number = patient_info["MainDicomTags"]["SeriesNumber"]
+                self.lista.append((number, patient_info))
         self.layout = QVBoxLayout()
         self.resize(600,400)
         self.setLayout(self.layout)
@@ -107,6 +106,9 @@ class Lista(QDialog):
 
     def clicked(self, label):
         self.return_value.emit(label)
+
+    def get_name(self, name):
+        self.name=name
 
 class ConfirmBox(QDialog):
     return_value = pyqtSignal(tuple)
@@ -148,11 +150,13 @@ class ShowInfo(QFrame):
 
 class DICOMViewer(QtWidgets.QWidget):
 
-    def __init__(self, patient_info):
+    def __init__(self, patient_info, studInfo):
         super().__init__()
         self.dcm= None
         self.aspectRatio=5
+        print(patient_info, studInfo)
         self.StudyInstanceUID = patient_info['MainDicomTags']['StudyInstanceUID']
+        # self.StudyInstanceUID = patient_info['MainDicomTags']['SeriesInstanceUID']
         self.image= None
         self.image_label = QLabel()
         self.index_label = QLabel()
@@ -252,8 +256,14 @@ class DICOMViewer(QtWidgets.QWidget):
     def getCurrentIndex(self):
         return self.current_index
 
+    # def play_slides(self):
+    #     #print(self.image.shape)
+    #     for i in range(self.image.shape[0]-1):
+    #         self.moveTo('next')
+    #         time.sleep(0.4)
+
     async def play_slides(self):
-        for _ in range(self.image.shape[0] - 1):
+        for i in range(self.image.shape[0] - 1):
             self.moveTo('next')
             await asyncio.sleep(0.4)
 
@@ -265,6 +275,8 @@ class DICOMViewer(QtWidgets.QWidget):
         elif action == 'prev' and self.current_index >0:
             self.current_index -=1
             asyncio.run(self.load_dicom_image(self.current_index-1))
+        else:
+            pass
 
 
     def handle_returned_value(self, value):
@@ -288,7 +300,12 @@ class DICOMViewer(QtWidgets.QWidget):
 
 
     def main_toggle_roi(self):
+        # Example usage
+        # url = "http://localhost:7250/"
         self.spinner.show_spinner()
+        # loop = asyncio.get_event_loop()
+        # loop.run_until_complete(self.call_api(url))
+        # asyncio.run(self.call_api(url))
         self.rois = self.exServer.orthanc_solution(self.patient_info)
         if len(self.rois.keys()) > 0:
             self.spinner.dismiss_spinner()
@@ -304,21 +321,28 @@ class DICOMViewer(QtWidgets.QWidget):
         points = []
         colors= [Qt.red, Qt.blue, Qt.yellow]
         self.rois_elaborate = self.rois
+        # for idx, roi in enumerate(list(self.rois.keys())[:-1]):
         painter = QPainter(self.pixmap_original)
         painter.setPen(QPen(colors[int(idx)], 1))
         for r in self.rois[idx]:
             r = r[:2]
             if len(r) > 1:
                 points.append(QPoint(int(r[0]*self.aspectRatio), int(r[1]*self.aspectRatio)))
-                fill_color = QColor(255, 0, 0)  # Red
+                fill_color = QColor(255, 0, 0)  # Rosso
                 brush = painter.brush()
                 brush.setColor(fill_color)
+                # Imposta il pennello di riempimento per il poligono
                 painter.setBrush(brush)
                 polygon = QPolygon(points)
                 painter.drawPolyline(polygon)
             self.confirmBox.setValues(idx)
             self.confirmBox.show()
         painter.end()
+        # if self.drawing_roi:
+        #     if len(self.current_roi) > 1:
+        #         for i in range(len(self.current_roi) - 1):
+        #             painter.drawLine(self.current_roi[i], self.current_roi[i+1])
+        # self.image_label.setPixmap(scaled_pixmap)
         self.image_label.setPixmap(self.pixmap_original)
         self.image_label.adjustSize()
 
@@ -334,9 +358,10 @@ class DICOMViewer(QtWidgets.QWidget):
                     r2 = r2[:2]
                     if len(r2) > 1:
                         points.append(QPoint(int(r2[0]*self.aspectRatio), int(r2[1]*self.aspectRatio)))
-                        fill_color = QColor(255, 0, 0)  # Red
+                        fill_color = QColor(255, 0, 0)  # Rosso
                         brush = painter.brush()
                         brush.setColor(fill_color)
+                        # Imposta il pennello di riempimento per il poligono
                         painter.setBrush(brush)
                         polygon = QPolygon(points)
                         painter.drawPolyline(polygon)
@@ -384,7 +409,10 @@ class DICOMViewer(QtWidgets.QWidget):
             else:
                 pixel_array= self.image
                 self.total_index= 1
+
+            #print(f"IMage NONE:{self.image.shape}")
         else:
+            #print(f"IMage not NONE:{self.image.shape}")
             if len(self.image.shape) > 2:
                 pixel_array= self.image[index]
             else:
@@ -405,7 +433,7 @@ class DICOMViewer(QtWidgets.QWidget):
 
 
     async def call_api(self, url):
-      formData = {'info': self.StudyInstanceUID }
+      formData = { 'info': self.StudyInstanceUID }
       self.contrast_slider.setValue(0)
       formData = json.dumps(formData, separators=(',', ':'))
       loop = asyncio.get_event_loop()
@@ -424,8 +452,12 @@ class DICOMViewer(QtWidgets.QWidget):
           self.spinner.alert_message(title="Error", message=f"API request failed with status code:{response.status_code}")
 
 
+
+
 def imageCheck(self):
+
     tags_to_check=['NumberOfFrames', 'PhotometricInterpretation', 'Rows', 'Columns', 'PhotometricInterpretation']
+
 
     for tag in tags_to_check:
         if self.dcm[tag]:
