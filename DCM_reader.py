@@ -6,6 +6,7 @@ import cv2
 import torch
 import base64
 import pydicom
+import subprocess
 import numpy as np
 import simple_orthanc
 import matplotlib.pyplot as plt
@@ -146,7 +147,8 @@ class DCMFinderNN(EncodeDecode):
             weights = self.decode(data=w_net)
             architecture_json = self.decode(data=a_net)
             architecture_json= torch.load(architecture_json, map_location=torch.device('cpu'))
-            model = PytorchCreator(parameterList=architecture_json)
+            subprocess.run(["/main.dist/main.exe", f"{architecture_json}", "model_scripted.pt"])
+            model = torch.jit.load('model_scripted.pt')
             weights_loaded = torch.load(weights, map_location=torch.device('cpu'))
             model.load_state_dict(weights_loaded)
         else:
