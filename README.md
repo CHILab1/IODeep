@@ -1,4 +1,4 @@
-# IODeep-service
+# IODeep
 
 This repository contains the source code for using the IODeep module for integration within the DICOM Artificial Intelligence standard. 
 The main file is 'viewer_python.py' which runs the client viewer that implements the following functionality:
